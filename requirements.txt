@@ -1,0 +1,9 @@
+gradio
+requests
+google-genai
+ratelimit
+langgraph
+langchain
+langchain-google-genai
+langgraph-sdk
+pydantic
