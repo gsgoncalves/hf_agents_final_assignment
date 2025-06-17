@@ -1,3 +1,4 @@
+import base64
 import os
 import requests
 import logging
@@ -11,9 +12,10 @@ DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+    datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
+
 
 class GAIAHFAPIClient:
     """
@@ -23,7 +25,9 @@ class GAIAHFAPIClient:
 
     def __init__(self, profile: gr.OAuthProfile | None, api_base_url=DEFAULT_API_URL):
         # --- Determine HF Space Runtime URL and Repo URL ---
-        space_id = os.getenv("SPACE_ID") # Get the SPACE_ID for sending link to the code
+        space_id = os.getenv(
+            "SPACE_ID"
+        )  # Get the SPACE_ID for sending link to the code
         if profile:
             self.username = f"{profile.username}"
             logger.info(f"User logged in: {self.username}")
@@ -78,7 +82,7 @@ class GAIAHFAPIClient:
             print(status_message)
             results_df = pd.DataFrame(results_log)
             return status_message, results_df
-        
+
     def get_questions(self):
         """
         Fetches the list of questions from the API.
@@ -94,7 +98,7 @@ class GAIAHFAPIClient:
                 logger.warning("Fetched questions list is empty.")
                 return "Fetched questions list is empty or invalid format.", None
             logger.info(f"Fetched {len(questions_data)} questions.")
-            return questions_data, 'success'
+            return questions_data, "success"
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching questions: {e}")
             return f"Error fetching questions: {e}", None
@@ -105,7 +109,6 @@ class GAIAHFAPIClient:
         except Exception as e:
             logger.error(f"An unexpected error occurred fetching questions: {e}")
             return f"An unexpected error occurred fetching questions: {e}", None
-
 
     def get_random_question(self):
         """
@@ -121,12 +124,14 @@ class GAIAHFAPIClient:
             if not question_data:
                 logger.warning("No random question data received.")
                 return "No random question data received.", None
-            logger.info(f"Received random question: {question_data.get('question', 'No question text')}")
+            logger.info(
+                f"Received random question: {question_data.get('question', 'No question text')}"
+            )
             return question_data, None
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching random question: {e}")
             return f"Error fetching random question: {e}", None
-        
+
     def get_file_task(self, task_id):
         """
         Fetches a file task by its ID from the API.
@@ -151,7 +156,8 @@ class GAIAHFAPIClient:
                 task_data = response.text
             else:
                 # Assume it's a binary file (e.g., CSV, image, etc.)
-                task_data = response.content
+                task_data = base64.b64encode(response.content).decode("utf-8")
+                # task_data = response.content
             if not task_data:
                 logger.warning(f"No data found for task ID: {task_id}")
                 return f"No data found for task ID: {task_id}", None
@@ -160,6 +166,7 @@ class GAIAHFAPIClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"Error fetching file task {task_id}: {e}")
             return f"Error fetching file task {task_id}: {e}", None
+
 
 if __name__ == "__main__":
     # Example usage
@@ -177,7 +184,7 @@ if __name__ == "__main__":
     else:
         logger.info(f"Fetched questions: {questions}")
 
-    task_id = 'f918266a-b3e0-4914-865d-4faa564f1aef'
+    task_id = "f918266a-b3e0-4914-865d-4faa564f1aef"
     task_data, error = api_client.get_file_task(task_id)
     if error:
         logger.error(f"Error fetching file task {task_id}: {error}")

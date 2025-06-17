@@ -14,7 +14,9 @@ Instructions:
 - Don't produce more than {number_queries} queries.
 - Queries should be diverse, if the topic is broad, generate more than 1 query.
 - Don't generate multiple similar queries, 1 is enough.
-- Query should ensure that the most current information is gathered. The current date is {current_date}.
+- By default the query should ensure that the most current information is gathered. The current date is {current_date}.
+- However you should override the most up to date query if the user asks for historical data or trends, in that case you must respect the user's specified revisions and versions.
+- You must respect and make sure that the users contrains are respected in the queries otherwise you will provide wrong answers.
 
 Format: 
 - Format your response as a JSON object with ALL three of these exact keys:
@@ -37,7 +39,9 @@ Context: {research_topic}"""
 web_searcher_instructions = """Conduct targeted Google Searches to gather the most recent, credible information on "{research_topic}" and synthesize it into a verifiable text artifact.
 
 Instructions:
-- Query should ensure that the most current information is gathered. The current date is {current_date}.
+- By default the query should ensure that the most current information is gathered. The current date is {current_date}.
+- However you should override the most up to date query if the user asks for historical data or trends, in that case you must respect the user's specified revisions and versions.
+- You must respect and make sure that the users contrains are respected in the queries otherwise you will provide wrong answers These include specific revisions of certain sources. That is a filter and a different facet of a query
 - Conduct multiple, diverse searches to gather comprehensive information.
 - Consolidate key findings while meticulously tracking the source(s) for each specific piece of information.
 - The output should be a well-written summary or report based on your search findings. 
@@ -94,3 +98,5 @@ User Context:
 
 Summaries:
 {summaries}"""
+
+gaia_system_instructions = """You are a general AI assistant. I will ask you a question. Report your thoughts, and finish your answer with the following template: FINAL ANSWER: [YOUR FINAL ANSWER]. YOUR FINAL ANSWER should be a number OR as few words as possible OR a comma separated list of numbers and/or strings. If you are asked for a number, don't use comma to write your number neither use units such as $ or percent sign unless specified otherwise. If you are asked for a string, don't use articles, neither abbreviations (e.g. for cities), and write the digits in plain text unless specified otherwise. If you are asked for a comma separated list, apply the above rules depending of whether the element to be put in the list is a number or a string."""

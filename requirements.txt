@@ -7,3 +7,4 @@ langchain
 langchain-google-genai
 langgraph-sdk
 pydantic
+dotenv

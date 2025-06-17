@@ -1,6 +1,6 @@
 import os
-
-from agent.tools_and_schemas import SearchQueryList, Reflection
+import logging
+from agents.tools_and_schemas import SearchQueryList, Reflection
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage
 from langgraph.types import Send
@@ -9,22 +9,23 @@ from langgraph.graph import START, END
 from langchain_core.runnables import RunnableConfig
 from google.genai import Client
 
-from agent.state import (
+from agents.state import (
     OverallState,
     QueryGenerationState,
     ReflectionState,
     WebSearchState,
 )
-from agent.configuration import Configuration
-from agent.prompts import (
+from agents.configuration import Configuration
+from agents.prompts import (
     get_current_date,
     query_writer_instructions,
     web_searcher_instructions,
     reflection_instructions,
     answer_instructions,
+    gaia_system_instructions,
 )
 from langchain_google_genai import ChatGoogleGenerativeAI
-from agent.utils import (
+from agents.utils import (
     get_citations,
     get_research_topic,
     insert_citation_markers,
@@ -38,6 +39,13 @@ if os.getenv("GEMINI_API_KEY") is None:
 
 # Used for Google Search API
 genai_client = Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger(__name__)
 
 
 # Nodes
@@ -63,7 +71,7 @@ def generate_query(state: OverallState, config: RunnableConfig) -> QueryGenerati
     # init Gemini 2.0 Flash
     llm = ChatGoogleGenerativeAI(
         model=configurable.query_generator_model,
-        temperature=1.0,
+        temperature=2.0,
         max_retries=2,
         api_key=os.getenv("GEMINI_API_KEY"),
     )
@@ -133,6 +141,7 @@ def web_research(state: WebSearchState, config: RunnableConfig) -> OverallState:
         "sources_gathered": sources_gathered,
         "search_query": [state["search_query"]],
         "web_research_result": [modified_text],
+        "web_research_result": [response.text],
     }
 
 
@@ -165,10 +174,11 @@ def reflection(state: OverallState, config: RunnableConfig) -> ReflectionState:
     # init Reasoning Model
     llm = ChatGoogleGenerativeAI(
         model=reasoning_model,
-        temperature=1.0,
+        temperature=0.3,
         max_retries=2,
         api_key=os.getenv("GEMINI_API_KEY"),
     )
+    logger.info(f"Reflection node invoked with research prompt:\n{formatted_prompt}")
     result = llm.with_structured_output(Reflection).invoke(formatted_prompt)
 
     return {
@@ -245,49 +255,62 @@ def finalize_answer(state: OverallState, config: RunnableConfig):
     llm = ChatGoogleGenerativeAI(
         model=reasoning_model,
         temperature=0,
-        max_retries=2,
+        max_retries=5,
         api_key=os.getenv("GEMINI_API_KEY"),
     )
     result = llm.invoke(formatted_prompt)
 
-    # Replace the short urls with the original urls and add all used urls to the sources_gathered
-    unique_sources = []
-    for source in state["sources_gathered"]:
-        if source["short_url"] in result.content:
-            result.content = result.content.replace(
-                source["short_url"], source["value"]
-            )
-            unique_sources.append(source)
+    # Use the previous result as context for the GAIA final answer
+    gaia_question = state["messages"][-1].content
+    messages = [
+        ("system", gaia_system_instructions),
+        ("user", f"Context: {result.content}\nQuestion: {gaia_question}"),
+    ]
+    gaia_result = llm.invoke(messages)
 
+    # Replace the short urls with the original urls and add all used urls to the sources_gathered
+    # unique_sources = []
+    # for source in state["sources_gathered"]:
+    #    if source["short_url"] in result.content:
+    #        result.content = result.content.replace(
+    #            source["short_url"], source["value"]
+    #        )
+    #        unique_sources.append(source)
+
+    # return gaia_result
     return {
-        "messages": [AIMessage(content=result.content)],
-        "sources_gathered": unique_sources,
+        #    "messages": [AIMessage(content=gaia_result.content)],
+        "messages": [gaia_result],
+        #    "sources_gathered": unique_sources,
     }
 
 
-# Create our Agent Graph
-builder = StateGraph(OverallState, config_schema=Configuration)
+def build_graph():
+    # Create our Agent Graph
+    builder = StateGraph(OverallState, config_schema=Configuration)
 
-# Define the nodes we will cycle between
-builder.add_node("generate_query", generate_query)
-builder.add_node("web_research", web_research)
-builder.add_node("reflection", reflection)
-builder.add_node("finalize_answer", finalize_answer)
+    # Define the nodes we will cycle between
+    builder.add_node("generate_query", generate_query)
+    builder.add_node("web_research", web_research)
+    builder.add_node("reflection", reflection)
+    builder.add_node("finalize_answer", finalize_answer)
+    builder.add_node("evaluate_research", evaluate_research)
 
-# Set the entrypoint as `generate_query`
-# This means that this node is the first one called
-builder.add_edge(START, "generate_query")
-# Add conditional edge to continue with search queries in a parallel branch
-builder.add_conditional_edges(
-    "generate_query", continue_to_web_research, ["web_research"]
-)
-# Reflect on the web research
-builder.add_edge("web_research", "reflection")
-# Evaluate the research
-builder.add_conditional_edges(
-    "reflection", evaluate_research, ["web_research", "finalize_answer"]
-)
-# Finalize the answer
-builder.add_edge("finalize_answer", END)
+    # Set the entrypoint as `generate_query`
+    # This means that this node is the first one called
+    builder.add_edge(START, "generate_query")
+    # Add conditional edge to continue with search queries in a parallel branch
+    builder.add_conditional_edges(
+        "generate_query", continue_to_web_research, ["web_research"]
+    )
+    # Reflect on the web research
+    builder.add_edge("web_research", "reflection")
+    # Evaluate the research
+    builder.add_conditional_edges(
+        "reflection", evaluate_research, ["web_research", "finalize_answer"]
+    )
+    # Finalize the answer
+    builder.add_edge("finalize_answer", END)
 
-graph = builder.compile(name="pro-search-agent")
+    graph = builder.compile(name="pro-search-agent")
+    return graph
